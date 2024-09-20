@@ -41,6 +41,16 @@ class _RecentPOPageState extends State<RecentPOPage> {
 
     setState(() {}); // Update the UI
   }
+  Future<void> removeRecentPOResult(String poNumber) async {
+    final prefs = await SharedPreferences.getInstance();
+    recentNoPOs.remove(poNumber);
+    await prefs.setStringList('recent_pos', recentNoPOs);
+
+    // Remove PO from the database
+    await dbHelper.deletePOResult(poNumber,);
+
+    setState(() {}); // Update the UI
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -84,6 +94,7 @@ class _RecentPOPageState extends State<RecentPOPage> {
                               onPressed: () {
                                 // Remove the PO from the list and update SharedPreferences and database
                                 removeRecentPO(poNumber);
+                                removeRecentPOResult(poNumber);
                               },
                               child: const Column(
                                 children: [

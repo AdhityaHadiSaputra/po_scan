@@ -1,6 +1,9 @@
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:metrox_po/models/db_helper.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 import 'package:qr_code_scanner/qr_code_scanner.dart';
 
 class PODetailPage extends StatefulWidget {
@@ -15,6 +18,7 @@ class PODetailPage extends StatefulWidget {
 class _PODetailPageState extends State<PODetailPage> {
   final DatabaseHelper dbHelper = DatabaseHelper();
   List<Map<String, dynamic>> poDetails = [];
+  List<Map<String, dynamic>> scannedResults = [];
   bool isLoading = true;
   final GlobalKey qrKey = GlobalKey(debugLabel: 'QR');
   QRViewController? controller;
@@ -24,6 +28,7 @@ class _PODetailPageState extends State<PODetailPage> {
   void initState() {
     super.initState();
     fetchPODetails(); // Fetch PO details when the page loads
+    fetchScannedResults(); // Fetch scanned results when the page loads
   }
 
   void playBeep() async {
@@ -31,11 +36,24 @@ class _PODetailPageState extends State<PODetailPage> {
   }
 
   Future<void> fetchPODetails() async {
-    final List<Map<String, dynamic>> details = await dbHelper.getPODetails(widget.poNumber);
+    final List<Map<String, dynamic>> details =
+        await dbHelper.getPODetails(widget.poNumber);
     setState(() {
       poDetails = details;
       isLoading = false;
     });
+  }
+
+  Future<void> fetchScannedResults() async {
+    try {
+      final List<Map<String, dynamic>> results =
+          await dbHelper.getScannedPODetails(widget.poNumber);
+      setState(() {
+        scannedResults = results;
+      });
+    } catch (e) {
+      print('Error fetching scanned results: $e');
+    }
   }
 
   void _startScanningForItem(String barcode) {
@@ -53,21 +71,26 @@ class _PODetailPageState extends State<PODetailPage> {
     );
   }
 
-  void checkAndSumQty(String scannedCode) {
-    for (var item in poDetails) {
-      if (item['barcode'] == scannedCode) {
-        _showQtyInputDialog(item);
-        return;
-      }
+void checkAndSumQty(String scannedCode) {
+  for (var item in poDetails) {
+    if (item['barcode'] == scannedCode) {
+      print('Found item: ${item['item_name']}'); // Debugging
+      _showQtyInputDialog(item, scannedCode);
+      return;
     }
+  }
 
+  // If no match found, check if the barcode already exists in scannedResults
+  if (!scannedResults.any((result) => result['barcode'] == scannedCode)) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('No matching item found for scanned barcode')),
     );
   }
+}
 
-  void _showQtyInputDialog(Map<String, dynamic> item) {
-    Navigator.of(context).pop();
+
+
+  void _showQtyInputDialog(Map<String, dynamic> item, String scannedCode) {
     TextEditingController _qtyController = TextEditingController(text: '');
 
     showDialog(
@@ -96,14 +119,20 @@ class _PODetailPageState extends State<PODetailPage> {
 
                 if (inputQty > 0) {
                   var updatedItem = Map<String, dynamic>.from(item);
-
-                  int qtyPO = int.tryParse(updatedItem['qty_po']?.toString() ?? '0') ?? 0;
-                  int existingQty = int.tryParse(updatedItem['qty_scanned']?.toString() ?? '0') ?? 0;
+                  int qtyPO =
+                      int.tryParse(updatedItem['qty_po']?.toString() ?? '0') ??
+                          0;
+                  int existingQty =
+                      int.tryParse(updatedItem['qty_scanned']?.toString() ??
+                          '0') ??
+                          0;
 
                   int newQtyScanned = existingQty + inputQty;
-                  int qtyDifferent = (newQtyScanned > qtyPO) ? newQtyScanned - qtyPO : 0;
+                  int qtyDifferent =
+                      (newQtyScanned > qtyPO) ? newQtyScanned - qtyPO : 0;
 
-                  updatedItem['qty_scanned'] = newQtyScanned > qtyPO ? qtyPO : newQtyScanned;
+                  updatedItem['qty_scanned'] =
+                      newQtyScanned > qtyPO ? qtyPO : newQtyScanned;
                   updatedItem['qty_different'] = qtyDifferent;
 
                   await dbHelper.updatePOItem(
@@ -114,11 +143,10 @@ class _PODetailPageState extends State<PODetailPage> {
                   );
 
                   fetchPODetails();
+                  fetchScannedResults(); // Fetch latest scanned results from the database
                 }
 
-                Navigator.of(context)
-                  ..pop() // Close input dialog
-                  ..pop(); // Close QRScannerPage
+                Navigator.of(context).pop(); // Close input dialog
               },
               child: Text('Confirm'),
             ),
@@ -129,7 +157,8 @@ class _PODetailPageState extends State<PODetailPage> {
   }
 
   void _editItem(Map<String, dynamic> item) {
-    TextEditingController _qtyScannedController = TextEditingController(text: item['qty_scanned'].toString());
+    TextEditingController _qtyScannedController =
+        TextEditingController(text: item['qty_scanned'].toString());
 
     showDialog(
       context: context,
@@ -149,14 +178,15 @@ class _PODetailPageState extends State<PODetailPage> {
           actions: [
             TextButton(
               onPressed: () {
-                Navigator.of(context).pop(); // Tutup dialog jika Cancel ditekan
+                Navigator.of(context).pop(); // Close dialog if Cancel is pressed
               },
               child: Text('Cancel'),
             ),
             TextButton(
               onPressed: () async {
                 int qtyPO = int.tryParse(item['qty_po'].toString()) ?? 0;
-                int newQtyScanned = int.tryParse(_qtyScannedController.text) ?? 0;
+                int newQtyScanned =
+                    int.tryParse(_qtyScannedController.text) ?? 0;
                 int qtyOver = 0;
 
                 if (newQtyScanned > qtyPO) {
@@ -172,6 +202,7 @@ class _PODetailPageState extends State<PODetailPage> {
                 );
 
                 fetchPODetails();
+                fetchScannedResults(); // Refresh scanned results
 
                 Navigator.of(context).pop();
               },
@@ -182,26 +213,59 @@ class _PODetailPageState extends State<PODetailPage> {
       },
     );
   }
+    void _deleteScannedResult(String barcode) async {
+    await dbHelper.deletePOResult(widget.poNumber);
+    fetchScannedResults(); // Refresh the scanned results after deletion
+  }
 
-  // void _postPO() async {
-  //   // Mark PO as "Posted" in the database
-  //   await dbHelper.postPO(widget.poNumber);
+  void submitScannedResults() async {
+  final url = 'http://108.136.252.63:8080/pogr/trans.php';
+  final userId = 'ahmad.syahru';
+  
+  List<Map<String, dynamic>> dataScan = scannedResults.map((item) {
+    return {
+      "pono": item['pono'],
+      "itemsku": item['item_sku'],
+      "skuname": item['item_name'],
+      "barcode": item['vendorbarcode'] ?? '',
+      "vendorbarcode": item['barcode'],
+      "qty": item['qty_scanned'].toString(),
+      "scandate": item['scandate'], // Ensure this is in correct format
+      "machinecd": item['device_name'] // Replace with your actual machine ID
+    };
+  }).toList();
 
-  //   ScaffoldMessenger.of(context).showSnackBar(
-  //     SnackBar(content: Text('PO ${widget.poNumber} has been posted.')),
-  //   );
+  // Assuming qty_over data is similar to scanned results, adjust if necessary
 
-  //   Navigator.of(context).pop(); // Go back to previous screen
-  // }
 
-  void _navigateToReviewPage() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ReviewPage(poNumber: widget.poNumber, poDetails: poDetails),
-      ),
+  final body = json.encode({
+    "USERID": userId,
+    "DATASCAN": dataScan,
+   
+  });
+
+  try {
+    final response = await http.post(
+      Uri.parse(url),
+      headers: {"Content-Type": "application/json"},
+      body: body,
+    );
+
+    if (response.statusCode == 200) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Data submitted successfully')),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to submit data: ${response.body}')),
+      );
+    }
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Error: $e')),
     );
   }
+}
 
   @override
   Widget build(BuildContext context) {
@@ -221,13 +285,14 @@ class _PODetailPageState extends State<PODetailPage> {
                       SingleChildScrollView(
                         scrollDirection: Axis.horizontal,
                         child: DataTable(
-                          columns:const [
+                          columns: const [
                             DataColumn(label: Text('Item SKU')),
                             DataColumn(label: Text('Item Name')),
                             DataColumn(label: Text('Barcode')),
                             DataColumn(label: Text('Quantity PO')),
                             DataColumn(label: Text('Quantity Scanned')),
                             DataColumn(label: Text('Quantity Over')),
+                            DataColumn(label: Text('Scan Date')),
                             DataColumn(label: Text('Device Name')),
                             DataColumn(label: Text('Actions')),
                           ],
@@ -237,15 +302,22 @@ class _PODetailPageState extends State<PODetailPage> {
                               DataCell(Text(detail['item_name'] ?? '')),
                               DataCell(Text(detail['barcode'] ?? '')),
                               DataCell(Text(detail['qty_po'].toString())),
-                              DataCell(Text((detail['qty_scanned'] ?? 0).toString())),
-                              DataCell(Text((detail['qty_different'] ?? 0).toString())),
+                              DataCell(Text((detail['qty_scanned'] ?? 0)
+                                  .toString())),
+                              DataCell(Text((detail['qty_different'] ?? 0)
+                                  .toString())),
+                              DataCell(Text(detail['scandate'] != null
+                                  ? DateFormat('yyyy-MM-dd HH:mm:ss')
+                                      .format(DateTime.parse(detail['scandate']))
+                                  : '')),
                               DataCell(Text(detail['device_name'] ?? '')),
                               DataCell(
                                 Row(
                                   children: [
                                     TextButton(
                                       onPressed: () {
-                                        _startScanningForItem(detail['barcode'] ?? '');
+                                        _startScanningForItem(
+                                            detail['barcode'] ?? '');
                                       },
                                       child: Icon(Icons.qr_code_scanner_rounded),
                                     ),
@@ -263,73 +335,74 @@ class _PODetailPageState extends State<PODetailPage> {
                           }).toList(),
                         ),
                       ),
-                      Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            ElevatedButton(
-                              onPressed: _navigateToReviewPage,
-                              child: Text('Review'),
-                            ),
-                            // ElevatedButton(
-                            //   onPressed: _postPO,
-                            //   child: Text('Posted'),
-                            //   style: ElevatedButton.styleFrom(primary: Colors.green),
-                            // ),
+                      SingleChildScrollView(
+                  scrollDirection: Axis.vertical,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: DataTable(
+                          columns: const [
+                            DataColumn(label: Text('PONO')),
+                            DataColumn(label: Text('Item SKU')),
+                            DataColumn(label: Text('Item SKU Name')),
+                            DataColumn(label: Text('Barcode')),
+                            DataColumn(label: Text('VendorBarcode')),
+                            DataColumn(label: Text('QTY')),
+                            DataColumn(label: Text('AudUser')),
+                            DataColumn(label: Text('AudDate')),
+                            DataColumn(label: Text('MachineCd')),
+                            DataColumn(label: Text('Actions')),
+
+                           
                           ],
+                          rows: scannedResults.map((detail) {
+                            return DataRow(cells: [
+                              DataCell(Text(detail['pono'] ?? '')),
+                              DataCell(Text(detail['item_sku'] ?? '')),
+                              DataCell(Text(detail['item_name'] ?? '')),
+                              DataCell(Text(detail['vendorbarcode'] ?? '')),
+                              DataCell(Text(detail['barcode'] ?? '')),
+                              
+                              DataCell(Text((detail['qty_scanned'] ?? 0)
+                                  .toString())),
+                              DataCell(Text(detail['user'] ?? '')),
+                              DataCell(Text(detail['scandate'] != null
+                                  ? DateFormat('yyyy-MM-dd HH:mm:ss')
+                                      .format(DateTime.parse(detail['scandate']))
+                                  : '')),
+                              DataCell(Text(detail['device_name'] ?? '')),
+                              DataCell(
+                                Row(
+                                  children: [
+                                    TextButton(
+                                      onPressed: () {
+                                        _deleteScannedResult(
+                                            detail['barcode'] ?? '');
+                                      },
+                                      child: Icon(Icons.delete),
+                                    ),
+                            ])
+                              )
+                            ]);
+                          }).toList(),
                         ),
+                        
                       ),
+                      SizedBox(height: 20), // Add some spacing
+                    Center(
+                      child: ElevatedButton(
+                        onPressed: submitScannedResults,
+                        child: Text('Submit Results'),
+                      ),
+                    ),
                     ],
                   ),
                 ),
-    );
-  }
-}
-
-class ReviewPage extends StatelessWidget {
-  final String poNumber;
-  final List<Map<String, dynamic>> poDetails;
-
-  ReviewPage({required this.poNumber, required this.poDetails});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Review PO: $poNumber'),
-      ),
-      body: poDetails.isEmpty
-          ? Center(child: Text('No items to review for this PO'))
-          : SingleChildScrollView(
-              scrollDirection: Axis.vertical,
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: DataTable(
-                  columns: const [
-                    DataColumn(label: Text('Item SKU')),
-                    DataColumn(label: Text('Item Name')),
-                    DataColumn(label: Text('Barcode')),
-                    DataColumn(label: Text('Quantity PO')),
-                    DataColumn(label: Text('Quantity Scanned')),
-                    DataColumn(label: Text('Quantity Over')),
-                    DataColumn(label: Text('Device Name')),
-                  ],
-                  rows: poDetails.map((detail) {
-                    return DataRow(cells: [
-                      DataCell(Text(detail['item_sku'] ?? '')),
-                      DataCell(Text(detail['item_name'] ?? '')),
-                      DataCell(Text(detail['barcode'] ?? '')),
-                      DataCell(Text(detail['qty_po'].toString())),
-                      DataCell(Text((detail['qty_scanned'] ?? 0).toString())),
-                      DataCell(Text((detail['qty_different'] ?? 0).toString())),
-                      DataCell(Text(detail['device_name'] ?? '')),
-                    ]);
-                  }).toList(),
-                ),
-              ),
-            ),
-    );
+                  ])));
+              
+    
   }
 }
 

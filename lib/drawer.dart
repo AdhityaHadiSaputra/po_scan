@@ -1,6 +1,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:metrox_po/screens/dashboard.dart';
+
 import 'package:metrox_po/screens/detail/master_item.dart';
 import 'package:metrox_po/screens/purchase_order.dart';
 import 'package:metrox_po/screens/recent_po.dart';
@@ -102,8 +103,7 @@ class _MyDrawerState extends State<MyDrawer> {
 
   @override
   Widget build(BuildContext context) {
-    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-
+   
     return SizedBox(
       child: Drawer(
         child: WillPopScope(
