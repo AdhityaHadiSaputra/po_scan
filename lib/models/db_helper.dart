@@ -339,6 +339,15 @@ class DatabaseHelper {
     );
   }
 
+  Future<void> deletePOScannedDifferentResult(String poNumber) async {
+    final db = await database;
+    await db.delete(
+      'scanned_results',
+      where: 'pono = ? AND type = ?',
+      whereArgs: [poNumber, scannedPOType],
+    );
+  }
+
   Future<void> updatePOItem(
       String poNumber, String barcode, int qtyScanned, int qtyDifferent) async {
     final db = await database;

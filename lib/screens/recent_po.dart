@@ -41,13 +41,14 @@ class _RecentPOPageState extends State<RecentPOPage> {
 
     setState(() {}); // Update the UI
   }
+
   Future<void> removeRecentPOResult(String poNumber) async {
     final prefs = await SharedPreferences.getInstance();
     recentNoPOs.remove(poNumber);
     await prefs.setStringList('recent_pos', recentNoPOs);
 
     // Remove PO from the database
-    await dbHelper.deletePOResult(poNumber,);
+    await dbHelper.deletePOScannedDifferentResult(poNumber);
 
     setState(() {}); // Update the UI
   }
@@ -70,7 +71,7 @@ class _RecentPOPageState extends State<RecentPOPage> {
                     return Card(
                       margin: const EdgeInsets.all(8.0),
                       child: ListTile(
-                        title: Text('$poNumber'),
+                        title: Text(poNumber),
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -79,7 +80,8 @@ class _RecentPOPageState extends State<RecentPOPage> {
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
-                                    builder: (context) => PODetailPage(poNumber: poNumber),
+                                    builder: (context) =>
+                                        PODetailPage(poNumber: poNumber),
                                   ),
                                 );
                               },
