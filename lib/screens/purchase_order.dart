@@ -1,9 +1,4 @@
-
-
-import 'package:audioplayers/audioplayers.dart';
-import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:metrox_po/drawer.dart';
 import 'package:metrox_po/models/db_helper.dart';
@@ -32,13 +27,11 @@ class _AppointmentPageState extends State<AppointmentPage> {
   List<Map<String, dynamic>> detailPOData = []; // Ensure this is initialized
   bool isLoading = false;
   final TextEditingController _poNumberController =
- //     TextEditingController(text: "PO/YEC/2409/0001");
-   TextEditingController();
+      TextEditingController(text: "PO/YEC/2409/0001");
+  // TextEditingController();
   QRViewController? controller;
   String scannedBarcode = "";
   int scannedQtySum = 0;
-  final AudioPlayer _audioPlayer = AudioPlayer();
-
 
   @override
   void initState() {
@@ -52,10 +45,6 @@ class _AppointmentPageState extends State<AppointmentPage> {
   void dispose() {
     controller?.dispose();
     super.dispose();
-  }
-
-  void playBeep() async {
-    await _audioPlayer.play(AssetSource('beep.mp3'));
   }
 
   Future<void> fetchPOData(String pono) async {
@@ -86,6 +75,7 @@ class _AppointmentPageState extends State<AppointmentPage> {
                 item["QTYD"] = product["qty_different"];
                 item["QTYS"] = product["qty_scanned"];
               }
+
               return item as Map<String, dynamic>;
             }).toList();
           });
@@ -126,49 +116,34 @@ class _AppointmentPageState extends State<AppointmentPage> {
   }
 
   Future<void> submitDataToDatabase() async {
-  String poNumber = _poNumberController.text.trim();
+    String poNumber = _poNumberController.text.trim();
 
-  if (poNumber.isEmpty) {
+    if (poNumber.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Please search for a PO before submitting data')),
+      );
+      return;
+    }
+
+    for (var item in detailPOData) {
+      final poData = {
+        'pono': poNumber, // Use the searched PO number here
+        'item_sku': item['ITEMSKU'],
+        'item_name': item['ITEMSKUNAME'],
+        'barcode': item['BARCODE'],
+        'qty_po': item['QTYPO'],
+        'qty_scanned': item['QTYS'] ?? 0,
+        'qty_different': item['QTYD'] ?? 0,
+      };
+
+      await dbHelper.insertOrUpdatePO(poData); // Insert the data to sqflite
+    }
+
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Please search for a PO before submitting data')),
+      const SnackBar(content: Text('PO data saved to local database')),
     );
-    return;
   }
-
-  // Get device info
-  final deviceInfoPlugin = DeviceInfoPlugin();
-  String deviceName = '';
-
-  if (GetPlatform.isAndroid) {
-    final androidInfo = await deviceInfoPlugin.androidInfo;
-    deviceName = '${androidInfo.brand} ${androidInfo.model}';
-  } else if (GetPlatform.isIOS) {
-    final iosInfo = await deviceInfoPlugin.iosInfo;
-    deviceName = '${iosInfo.name} ${iosInfo.systemVersion}';
-  } else {
-    deviceName = 'Unknown Device';
-  }
-
-  // Loop through PO data and save to database
-  for (var item in detailPOData) {
-    final poData = {
-      'pono': poNumber, // Use the searched PO number here
-      'item_sku': item['ITEMSKU'],
-      'item_name': item['ITEMSKUNAME'],
-      'barcode': item['BARCODE'],
-      'qty_po': item['QTYPO'],
-      'qty_scanned': item['QTYS'] ?? 0,
-      'qty_different': item['QTYD'] ?? 0,
-      'device_name': deviceName,  // Add device name to each row
-    };
-
-    await dbHelper.insertOrUpdatePO(poData); // Insert data to sqflite
-  }
-
-  ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(content: Text('PO data saved to local database with device info')),
-  );
-}
 
   void _onQRViewCreated(QRViewController qrController) {
     setState(() {
@@ -181,12 +156,10 @@ class _AppointmentPageState extends State<AppointmentPage> {
       });
 
       if (scannedBarcode.isNotEmpty) {
-        playBeep();
         checkAndSumQty(scannedBarcode);
       }
-      
     });
-  
+    // checkAndSumQty("S54227417345002");
   }
 
   void checkAndSumQty(String scannedCode) {
@@ -196,7 +169,6 @@ class _AppointmentPageState extends State<AppointmentPage> {
         return;
       }
     }
-    // _showManualInputDialog(scannedCode);
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -229,58 +201,37 @@ class _AppointmentPageState extends State<AppointmentPage> {
               },
               child: const Text('Cancel'),
             ),
-            // TextButton(
-            //   onPressed: () {
-            //     int inputQty = int.tryParse(qtyController.text) ?? 0;
-
-            //     // if (inputQty > 0) {
-            //     //   int poQty = int.tryParse((item['QTYPO'] as String)
-            //     //           .replaceAll(formatQTYRegex, '')) ??
-            //     //       0;
-            //     //   if (inputQty <= poQty) {
-            //     //     item['QTYS'] = inputQty;
-            //     //     item['QTYD'] = inputQty != poQty ? poQty - inputQty : 0;
-            //     //     updatePO(item);
-            //     //   } else {
-            //     //     ScaffoldMessenger.of(context).showSnackBar(
-            //     //       const SnackBar(
-            //     //           content: Text(
-            //     //         "Quantity can't be larger than Quantity PO",
-            //     //       )),
-            //     //     );
-            //     //   }
-            //     // }
-            //     if (inputQty > 0) {
-            //       int poQty = int.tryParse((item['QTYPO'] as String)
-            //               .replaceAll(formatQTYRegex, '')) ??
-            //           0;
-            //       bool isLargerThanQTYPO = inputQty > poQty;
-            //       item['QTYS'] = isLargerThanQTYPO ? poQty : inputQty;
-            //       item['QTYD'] = isLargerThanQTYPO ? (poQty - inputQty).abs() : 0;
-            //       updatePO(item);
-            //     }
             TextButton(
-            onPressed: () {
-              int inputQty = int.tryParse(qtyController.text) ?? 0;
+              onPressed: () {
+                int inputQty = int.tryParse(qtyController.text) ?? 0;
 
-              if (inputQty > 0) {
-                // Parse the current QTYS and QTYPO
-                int poQty = int.tryParse((item['QTYPO'] as String)
-                        .replaceAll(formatQTYRegex, '')) ?? 0;
-                int scannedQty = int.tryParse(item['QTYS']?.toString() ?? '0') ?? 0;
-                
-                // Add the newly scanned quantity to the existing one
-                int newScannedQty = scannedQty + inputQty;
-
-                // Check if the new scanned quantity exceeds the PO quantity
-                bool isLargerThanQTYPO = newScannedQty > poQty;
-
-                // Update QTYS and QTYD
-                item['QTYS'] = isLargerThanQTYPO ? poQty : newScannedQty;
-                item['QTYD'] = isLargerThanQTYPO ? (poQty - newScannedQty).abs() : 0;
-
-                updatePO(item);
-              }
+                // if (inputQty > 0) {
+                //   int poQty = int.tryParse((item['QTYPO'] as String)
+                //           .replaceAll(formatQTYRegex, '')) ??
+                //       0;
+                //   if (inputQty <= poQty) {
+                //     item['QTYS'] = inputQty;
+                //     item['QTYD'] = inputQty != poQty ? poQty - inputQty : 0;
+                //     updatePO(item);
+                //   } else {
+                //     ScaffoldMessenger.of(context).showSnackBar(
+                //       const SnackBar(
+                //           content: Text(
+                //         "Quantity can't be larger than Quantity PO",
+                //       )),
+                //     );
+                //   }
+                // }
+                if (inputQty > 0) {
+                  int poQty = int.tryParse((item['QTYPO'] as String)
+                          .replaceAll(formatQTYRegex, '')) ??
+                      0;
+                  bool isLargerThanQTYPO = inputQty > poQty;
+                  item['QTYS'] = isLargerThanQTYPO ? poQty : inputQty;
+                  item['QTYD'] =
+                      isLargerThanQTYPO ? (poQty - inputQty).abs() : 0;
+                  updatePO(item);
+                }
 
                 Navigator.of(context).pop(); // Close input dialog
               },
@@ -299,97 +250,6 @@ class _AppointmentPageState extends State<AppointmentPage> {
     savePOToRecent(_poNumberController.text);
     submitDataToDatabase();
   }
-//   Future<void> updatePO(Map<String, dynamic> item) async {
-//   // Update the local PO data
-//   detailPOData = detailPOData.replaceOrAdd(
-//       item, (po) => po['BARCODE'] == item["BARCODE"]);
-
-//   setState(() {});
-
-//   // Save the PO number and item details to recent POs
-//   await savePOToRecent(_poNumberController.text\);
-
-//   // Submit the updated data to the database
-//   submitDataToDatabase();
-// }
-
-//  void _showManualInputDialog(String scannedCode) {
-//   Navigator.of(context).pop();
-//   final TextEditingController skuController = TextEditingController();
-//   final TextEditingController nameController = TextEditingController();
-//   final TextEditingController qtyPOController = TextEditingController();
-//   final TextEditingController qtyScannedController = TextEditingController();
-
-//   showDialog(
-//     context: context,
-//     builder: (context) {
-//       return AlertDialog(
-//         title: const Text('Manual Entry for Unlisted Item'),
-//         content: Column(
-//           mainAxisSize: MainAxisSize.min,
-//           children: [
-//             TextField(
-//               controller: skuController,
-//               decoration: const InputDecoration(
-//                 labelText: 'Item SKU',
-//                 border: OutlineInputBorder(),
-//               ),
-//             ),
-//             const SizedBox(height: 10),
-//             TextField(
-//               controller: nameController,
-//               decoration: const InputDecoration(
-//                 labelText: 'Item Name',
-//                 border: OutlineInputBorder(),
-//               ),
-//             ),
-//             const SizedBox(height: 10),
-//             TextField(
-//               controller: qtyPOController,
-//               decoration: const InputDecoration(
-//                 labelText: 'Quantity PO',
-//                 border: OutlineInputBorder(),
-//               ),
-//               keyboardType: TextInputType.number,
-//             ),
-//             const SizedBox(height: 10),
-//             TextField(
-//               controller: qtyScannedController,
-//               decoration: const InputDecoration(
-//                 labelText: 'Quantity Scanned',
-//                 border: OutlineInputBorder(),
-//               ),
-//               keyboardType: TextInputType.number,
-//             ),
-//           ],
-//         ),
-//         actions: [
-//           TextButton(
-//             onPressed: () => Navigator.of(context).pop(),
-//             child: const Text('Cancel'),
-//           ),
-//           TextButton(
-//             onPressed: () {
-//               // Add the manually entered item to the PO data
-//               setState(() {
-//                 detailPOData.add({
-//                   'ITEMSKU': skuController.text,
-//                   'ITEMSKUNAME': nameController.text,
-//                   'BARCODE': scannedCode,
-//                   'QTYPO': int.tryParse(qtyPOController.text) ?? 0,
-//                   'QTYS': int.tryParse(qtyScannedController.text) ?? 0,
-//                   'QTYD': 0, // You can calculate qty difference if needed
-//                 });
-//               });
-//               Navigator.of(context).pop(); // Close dialog
-//             },
-//             child: const Text('Add Item'),
-//           ),
-//         ],
-//       );
-//     },
-//   );
-// }
 
   Future<void> savePOToRecent(String updatedPONO) async {
     final prefs = await SharedPreferences.getInstance();
@@ -399,38 +259,6 @@ class _AppointmentPageState extends State<AppointmentPage> {
         recentNoPOs.replaceOrAdd(updatedPONO, (pono) => pono == updatedPONO);
     await prefs.setStringList('recent_pos', recentNoPOs);
   }
-// Future<void> savePOToRecent(String updatedPONO, List<Map<String, dynamic>> items) async {
-//   final prefs = await SharedPreferences.getInstance();
-//   List<String> recentNoPOs = prefs.getStringList('recent_pos') ?? [];
-
-//   // Prepare a map to store the PO and associated item details
-//   final Map<String, dynamic> poWithItems = {
-//     'pono': updatedPONO,
-//     'items': items.map((item) {
-//       return {
-//         'ITEMSKU': item['ITEMSKU'],
-//         'ITEMSKUNAME': item['ITEMSKUNAME'],
-//         'BARCODE': item['BARCODE'],
-//         'QTYPO': item['QTYPO'],
-//         'QTYS': item['QTYS'],
-//         'QTYD': item['QTYD'],
-//       };
-//     }).toList(),
-//   };
-
-//   // Convert PO data to a JSON string for storage
-//   String poWithItemsJson = jsonEncode(poWithItems);
-
-//   // Replace or add the PO data
-//   recentNoPOs = recentNoPOs.replaceOrAdd(poWithItemsJson, (poJson) {
-//     // Decode the existing JSON string to check for matching PONO
-//     final Map<String, dynamic> existingPO = jsonDecode(poJson);
-//     return existingPO['pono'] == updatedPONO;
-//   });
-
-//   // Save the updated list back to SharedPreferences
-//   await prefs.setStringList('recent_pos', recentNoPOs);
-// }
 
   @override
   Widget build(BuildContext context) {
@@ -453,9 +281,6 @@ class _AppointmentPageState extends State<AppointmentPage> {
                       labelText: 'Enter PO Number',
                       border: OutlineInputBorder(),
                     ),
-                    inputFormatters: [
-                      UpperCaseTextFormatter()
-                    ],
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -493,8 +318,7 @@ class _AppointmentPageState extends State<AppointmentPage> {
                                   DataColumn(label: Text('Barcode')),
                                   DataColumn(label: Text('Qty PO')),
                                   DataColumn(label: Text('Qty Scanned')),
-                                  DataColumn(label: Text('Qty Over')),
-                                  DataColumn(label: Text('Device Name')),
+                                  DataColumn(label: Text('Qty Different')),
                                 ],
                                 rows: detailPOData
                                     .map(
@@ -512,7 +336,6 @@ class _AppointmentPageState extends State<AppointmentPage> {
                                             Text(e['QTYS']?.toString() ?? '0')),
                                         DataCell(
                                             Text((e['QTYD'] ?? 0).toString())),
-                                             DataCell(Text(e['device_name']?.toString() ?? 'Unknown Device')),
                                       ]),
                                     )
                                     .toList(),
@@ -590,17 +413,6 @@ class QRViewExample extends StatelessWidget {
           cutOutSize: 300,
         ),
       ),
-    );
-  }
-}
-
-class UpperCaseTextFormatter extends TextInputFormatter {
-  @override
-  TextEditingValue formatEditUpdate(
-      TextEditingValue oldValue, TextEditingValue newValue) {
-    return TextEditingValue(
-      text: newValue.text.toUpperCase(),
-      selection: newValue.selection,
     );
   }
 }

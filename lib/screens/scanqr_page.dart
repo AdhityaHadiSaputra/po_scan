@@ -1,20 +1,20 @@
+import 'dart:convert';
+
 import 'package:audioplayers/audioplayers.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
+import 'package:http/http.dart' as http;
+import 'package:intl/intl.dart';
 import 'package:metrox_po/drawer.dart';
 import 'package:metrox_po/models/db_helper.dart';
-import 'package:metrox_po/screens/detail/master_item.dart';
 import 'package:metrox_po/utils/list_extensions.dart';
 import 'package:metrox_po/utils/storage.dart';
 import 'package:qr_code_scanner/qr_code_scanner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../api_service.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
 
-import 'package:intl/intl.dart';
+import '../api_service.dart';
 
 final formatQTYRegex = RegExp(r'([.]*0+)(?!.*\d)');
 
@@ -37,8 +37,13 @@ class _ScanQRPageState extends State<ScanQRPage> {
       []; // Items fetched from master item that are not in PO
   List<Map<String, dynamic>> scannedResults =
       []; // New list to hold scanned results
+  List<Map<String, dynamic>> differentScannedResults =
+      []; // New list to hold qty different results
   bool isLoading = false;
-  final TextEditingController _poNumberController = TextEditingController();
+  final TextEditingController _poNumberController =
+      TextEditingController(text: "PO/YEC/2409/0001");
+
+  //  TextEditingController();
   QRViewController? controller;
   String scannedBarcode = "";
   late String userId = '';
@@ -72,7 +77,6 @@ class _ScanQRPageState extends State<ScanQRPage> {
         userData['USERID'],
         userData['USERPASSWORD'],
       );
-      print(response);
 
       // Check if the response is not null and contains a 'code' field
       if (response.containsKey('code')) {
@@ -109,16 +113,27 @@ class _ScanQRPageState extends State<ScanQRPage> {
       if (response.containsKey('code') && response['code'] == '1') {
         final msg = response['msg'];
         final headerPO = msg['HeaderPO'];
-        final localPOs = await dbHelper.getPODetails(headerPO[0]['PONO']);
+        final localPOs =
+            await dbHelper.getPOScannedODetails(headerPO[0]['PONO']);
+        final scannedPOs =
+            await dbHelper.getPOResultScannedDetails(headerPO[0]['PONO']);
+        final differentPOs =
+            await dbHelper.getPODifferentScannedDetails(headerPO[0]['PONO']);
+
+        scannedResults = [...scannedPOs];
+        differentScannedResults = [...differentPOs];
         final detailPOList = List<Map<String, dynamic>>.from(msg['DetailPO']);
 
         setState(() {
           detailPOData = detailPOList.map((item) {
-            final product = localPOs.firstWhereOrNull(
-                (product) => product["barcode"] == item["BARCODE"]);
+            final product = localPOs.firstWhereOrNull((product) =>
+                product["barcode"] == item["BARCODE"] ||
+                product["barcode"] == item["BARCODE"]);
             if (product != null) {
               item["QTYD"] = product["qty_different"];
-              item["QTYS"] = product["qty_scanned"];
+              item["QTYS"] = scannedPOs.isNotEmpty
+                  ? scannedPOs.length
+                  : product["qty_scanned"];
             }
             return item;
           }).toList();
@@ -175,14 +190,16 @@ class _ScanQRPageState extends State<ScanQRPage> {
         'qty_different': item['QTYD'] ?? 0,
         'device_name': deviceName,
         'scandate': scandate,
+        // "status":
+        //     item['QTYD'] != null && item['QTYD'] != 0 ? "different" : "scanned"
       };
 
       await dbHelper.insertOrUpdatePO(poData);
     }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('PO data saved')),
-    );
+    // !UNCOMMENT THIS CODE
+    // ScaffoldMessenger.of(context).showSnackBar(
+    //   const SnackBar(content: Text('PO data saved')),
+    // );
   }
 
   void _onQRViewCreated(QRViewController qrController) {
@@ -190,16 +207,16 @@ class _ScanQRPageState extends State<ScanQRPage> {
       controller = qrController;
     });
 
-    controller!.scannedDataStream.listen((scanData) {
+    controller!.scannedDataStream.listen((scanData) async {
       setState(() {
         scannedBarcode = scanData.code ?? "";
       });
 
       if (scannedBarcode.isNotEmpty) {
         playBeep();
-        checkAndSumQty(scannedBarcode);
         controller?.pauseCamera();
-        Future.delayed(const Duration(seconds: 2), () {
+        await checkAndSumQty(scannedBarcode);
+        Future.delayed(const Duration(seconds: 1), () {
           controller?.resumeCamera();
         });
       }
@@ -230,36 +247,85 @@ class _ScanQRPageState extends State<ScanQRPage> {
       int poQty = int.tryParse(
               (item['QTYPO'] as String).replaceAll(formatQTYRegex, '')) ??
           0;
-      int scannedQty = int.tryParse(item['QTYS']?.toString() ?? '0') ?? 0;
+      int scannedQty = scannedResults.isNotEmpty
+          ? scannedResults.length
+          : int.tryParse(item['QTYS']?.toString() ?? '0') ?? 0;
+      // int scannedQty = scannedResults.length;
+      int currentQtyD = int.tryParse(item['QTYD']?.toString() ?? '0') ?? 0;
+
+      int newScannedQty = scannedQty + 1;
+
+      item['QTYS'] = newScannedQty > poQty ? poQty : newScannedQty;
+      item['QTYD'] = currentQtyD != 0
+          ? currentQtyD + 1
+          : newScannedQty > poQty
+              ? newScannedQty - poQty
+              : 0;
+
+      item['scandate'] =
+          DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
+
+      // Add to scanned results
+      setState(() {}); // Update UI
+
+      final mappedPO = {
+        'pono': _poNumberController.text.trim(),
+        'item_sku': item['ITEMSKU'],
+        'item_name': item['ITEMSKUNAME'],
+        'barcode': scannedCode,
+        'qty_po': item['QTYPO'],
+        'qty_scanned': 1,
+        'qty_different': currentQtyD,
+        'device_name': deviceName,
+        'scandate': item['scandate'],
+        'user': userId,
+        "status": item['QTYD'] != 0 ? "different" : 'scanned',
+        "type": scannedPOType
+      };
 
       if (scannedQty < poQty) {
-        int newScannedQty = scannedQty + 1;
-
-        item['QTYS'] = newScannedQty > poQty ? poQty : newScannedQty;
-        item['QTYD'] = newScannedQty > poQty ? newScannedQty - poQty : 0;
-
-        item['scandate'] =
-            DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
-
-        // Add to scanned results
-        scannedResults.add({
-          'pono': _poNumberController.text.trim(),
-          'item_sku': item['ITEMSKU'],
-          'item_name': item['ITEMSKUNAME'],
-          'barcode': scannedCode,
-          'qty_scanned': 1,
-          'user': userId,
-          'device_name': deviceName,
-          'scandate': item['scandate'],
-        });
-
-        updatePO(item);
-        await submitScannedResults();
-        setState(() {}); // Update UI
+        scannedResults.add(mappedPO);
       } else {
-        _showErrorSnackBar(
-            'Scanned quantity for this item already meets or exceeds PO quantity.');
+        differentScannedResults.add(mappedPO);
+        // !UNCOMMENT THIS CODE
+        // _showErrorSnackBar(
+        //     'Scanned quantity for this item already meets or exceeds PO quantity.');
       }
+
+      await Future.wait([
+        updatePO(item),
+        submitScannedResults(),
+      ]);
+
+      // if (scannedQty < poQty) {
+      //   int newScannedQty = scannedQty + 1;
+
+      //   item['QTYS'] = newScannedQty > poQty ? poQty : newScannedQty;
+      //   item['QTYD'] = newScannedQty > poQty ? newScannedQty - poQty : 0;
+
+      //   item['scandate'] =
+      //       DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
+
+      //   // Add to scanned results
+      //   scannedResults.add({
+      //     'pono': _poNumberController.text.trim(),
+      //     'item_sku': item['ITEMSKU'],
+      //     'item_name': item['ITEMSKUNAME'],
+      //     'barcode': scannedCode,
+      //     'qty_scanned': 1,
+      //     'user': userId,
+      //     'device_name': deviceName,
+      //     'scandate': item['scandate'],
+      //   });
+      //   await Future.wait([
+      //     updatePO(item),
+      //     submitScannedResults(),
+      //   ]);
+      //   setState(() {}); // Update UI
+      // } else {
+      //   _showErrorSnackBar(
+      //       'Scanned quantity for this item already meets or exceeds PO quantity.');
+      // }
     } else {
       // Handle master item fetching as before...
       final masterItem = await fetchMasterItem(scannedCode);
@@ -293,25 +359,15 @@ class _ScanQRPageState extends State<ScanQRPage> {
   }
 
   Future<void> submitScannedResults() async {
-    for (var result in scannedResults) {
-      final scannedData = {
-        'pono': result['pono'],
-        'item_sku': result['item_sku'],
-        'item_name': result['item_name'],
-        'barcode': result['barcode'],
-        'qty_scanned': result['qty_scanned'],
-        'user': result['user'],
-        'device_name': result['device_name'],
-        'scandate': result['scandate'],
-      };
-
+    final allPOs = [...scannedResults, ...differentScannedResults];
+    for (var result in allPOs) {
       await dbHelper.insertOrUpdateScannedResults(
-          scannedData); // Assuming you have a method for this
+          result); // Assuming you have a method for this
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Scanned results saved successfully')),
-    );
+    // ScaffoldMessenger.of(context).showSnackBar(
+    //   const SnackBar(content: Text('Scanned results saved successfully')),
+    // );
   }
 
   Future<Map<String, dynamic>?> fetchMasterItem(String scannedCode) async {
@@ -573,6 +629,68 @@ class _ScanQRPageState extends State<ScanQRPage> {
                               ],
                             ),
                           ),
+                          Expanded(
+                            child: Column(
+                              children: [
+                                const Text(
+                                  'Different Scanned Results',
+                                  style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold),
+                                ),
+                                Expanded(
+                                  child: SingleChildScrollView(
+                                    scrollDirection: Axis.horizontal,
+                                    child: SingleChildScrollView(
+                                      controller: ScrollController(),
+                                      child: DataTable(
+                                        columns: const [
+                                          DataColumn(label: Text('PO Number')),
+                                          DataColumn(label: Text('Item SKU')),
+                                          DataColumn(label: Text('Item Name')),
+                                          DataColumn(label: Text('Barcode')),
+                                          DataColumn(
+                                              label: Text('Qty Scanned')),
+                                          DataColumn(label: Text('User')),
+                                          DataColumn(label: Text('Device')),
+                                          DataColumn(label: Text('Timestamp')),
+                                        ],
+                                        rows: differentScannedResults
+                                            .map(
+                                              (result) => DataRow(
+                                                cells: [
+                                                  DataCell(Text(
+                                                      result['pono'] ?? '')),
+                                                  DataCell(Text(
+                                                      result['item_sku'] ??
+                                                          '')),
+                                                  DataCell(Text(
+                                                      result['item_name'] ??
+                                                          '')),
+                                                  DataCell(Text(
+                                                      result['barcode'] ?? '')),
+                                                  DataCell(Text(
+                                                      result['qty_scanned']
+                                                          .toString())),
+                                                  DataCell(Text(
+                                                      result['user'] ?? '')),
+                                                  DataCell(Text(
+                                                      result['device_name'] ??
+                                                          '')),
+                                                  DataCell(Text(
+                                                      result['scandate'] ??
+                                                          '')),
+                                                ],
+                                              ),
+                                            )
+                                            .toList(),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -588,17 +706,21 @@ class _ScanQRPageState extends State<ScanQRPage> {
                     return;
                   }
 
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => QRViewExample(
-                        onQRViewCreated: _onQRViewCreated,
-                        onScanComplete: () {},
-                      ),
-                    ),
-                  ).then((_) {
-                    // Refresh data if needed
-                  });
+                  // !TODO: REMOVE THISCODE
+                  playBeep();
+                  checkAndSumQty("S54227417345001");
+                  // !TODO: RESTORE THISCODE
+                  // Navigator.push(
+                  //   context,
+                  //   MaterialPageRoute(
+                  //     builder: (context) => QRViewExample(
+                  //       onQRViewCreated: _onQRViewCreated,
+                  //       onScanComplete: () {},
+                  //     ),
+                  //   ),
+                  // ).then((_) {
+                  //   // Refresh data if needed
+                  // });
                 },
                 child: const Text('Scan QR Code'),
               ),
