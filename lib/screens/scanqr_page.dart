@@ -288,8 +288,8 @@ class _ScanQRPageState extends State<ScanQRPage> {
       } else {
         differentScannedResults.add(mappedPO);
         // !UNCOMMENT THIS CODE
-        // _showErrorSnackBar(
-        //     'Scanned quantity for this item already meets or exceeds PO quantity.');
+        _showErrorSnackBar(
+            'Scanned quantity for this item already meets or exceeds PO quantity.');
       }
 
       await Future.wait([
@@ -362,12 +362,13 @@ class _ScanQRPageState extends State<ScanQRPage> {
     final allPOs = [...scannedResults, ...differentScannedResults];
     for (var result in allPOs) {
       await dbHelper.insertOrUpdateScannedResults(
-          result); // Assuming you have a method for this
+        result,
+      ); // Assuming you have a method for this
     }
 
-    // ScaffoldMessenger.of(context).showSnackBar(
-    //   const SnackBar(content: Text('Scanned results saved successfully')),
-    // );
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Scanned results saved successfully')),
+    );
   }
 
   Future<Map<String, dynamic>?> fetchMasterItem(String scannedCode) async {
@@ -706,21 +707,21 @@ class _ScanQRPageState extends State<ScanQRPage> {
                     return;
                   }
 
-                  // !TODO: REMOVE THISCODE
-                  playBeep();
-                  checkAndSumQty("S54227417345001");
-                  // !TODO: RESTORE THISCODE
-                  // Navigator.push(
-                  //   context,
-                  //   MaterialPageRoute(
-                  //     builder: (context) => QRViewExample(
-                  //       onQRViewCreated: _onQRViewCreated,
-                  //       onScanComplete: () {},
-                  //     ),
-                  //   ),
-                  // ).then((_) {
-                  //   // Refresh data if needed
-                  // });
+                  // // !TODO: REMOVE THISCODE
+                  // playBeep();
+                  // checkAndSumQty("S54227417345001");
+                  // // !TODO: RESTORE THISCODE
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => QRViewExample(
+                        onQRViewCreated: _onQRViewCreated,
+                        onScanComplete: () {},
+                      ),
+                    ),
+                  ).then((_) {
+                    // Refresh data if needed
+                  });
                 },
                 child: const Text('Scan QR Code'),
               ),
