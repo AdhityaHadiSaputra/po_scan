@@ -156,27 +156,28 @@ class DatabaseHelper {
 
     bool exists = await poScannedExists(
         poData['pono'], poData['barcode'], poData['scandate']);
-    poData["type"] = scannedPOType;
+    final mappedPOData = {...poData, "type": scannedPOType};
+    // poData["type"] = scannedPOType;
     // await db.insert('scanned_results', poData);
 
     if (exists) {
       await db.update(
         'scanned_results',
-        poData,
+        mappedPOData,
         where: 'pono = ? AND barcode = ? AND type = ? AND scandate = ?',
         whereArgs: [
-          poData['pono'],
-          poData['barcode'],
+          mappedPOData['pono'],
+          mappedPOData['barcode'],
           scannedPOType,
-          poData['scandate']
+          mappedPOData['scandate']
         ],
       );
       print(
-          'CEKK PO updated: ${poData['pono']} - Barcode: ${poData['barcode']} - Scandate: ${poData['scandate']}');
+          'CEKK PO updated: ${mappedPOData['pono']} - Barcode: ${mappedPOData['barcode']} - Scandate: ${mappedPOData['scandate']}');
     } else {
-      await db.insert('scanned_results', poData);
+      await db.insert('scanned_results', mappedPOData);
       print(
-          'CEKK PO inserted: ${poData['pono']} - Barcode: ${poData['barcode']} - Scandate: ${poData['scandate']}');
+          'CEKK PO inserted: ${mappedPOData['pono']} - Barcode: ${mappedPOData['barcode']} - Scandate: ${mappedPOData['scandate']}');
     }
   }
 
